@@ -46,3 +46,8 @@ for fold_idx in xrange(0, 5):
 	for dataset_type in ['dev', 'test', 'train']:
 		lines = extract_based_on_ids(dataset, 'fold_%d/%s_ids.txt' % (fold_idx, dataset_type))
 		create_dataset(lines, 'fold_%d/%s.tsv' % (fold_idx, dataset_type))
+for dataset_type in ['dev','test','train']:
+	lines = []
+	for fold_idx in xrange(0,5):
+		lines.extend(extract_based_on_ids(dataset, 'fold_%d/%s_ids.txt' % (fold_idx, dataset_type)))
+	create_dataset(lines,'fold/%s.tsv' % (dataset_type))
