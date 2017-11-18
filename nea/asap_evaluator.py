@@ -56,8 +56,8 @@ class Evaluator():
 		return dev_qwk, test_qwk, dev_lwk, test_lwk
 	
 	def evaluate(self, model, epoch, print_info=False):
-		self.dev_loss, self.dev_metric = model.evaluate(self.dev_x, self.dev_y, batch_size=self.batch_size, verbose=0)
-		self.test_loss, self.test_metric = model.evaluate(self.test_x, self.test_y, batch_size=self.batch_size, verbose=0)
+		#self.dev_loss, self.dev_metric = model.evaluate(self.dev_x, self.dev_y, batch_size=self.batch_size, verbose=0)
+		#self.test_loss, self.test_metric = model.evaluate(self.test_x, self.test_y, batch_size=self.batch_size, verbose=0)
 		
 		self.dev_pred = model.predict(self.dev_x, batch_size=self.batch_size).squeeze()
 		self.test_pred = model.predict(self.test_x, batch_size=self.batch_size).squeeze()
@@ -85,10 +85,10 @@ class Evaluator():
 			self.print_info()
 	
 	def print_info(self):
-		logger.info('[Dev]   loss: %.4f, metric: %.4f, mean: %.3f (%.3f), stdev: %.3f (%.3f)' % (
-			self.dev_loss, self.dev_metric, self.dev_pred.mean(), self.dev_mean, self.dev_pred.std(), self.dev_std))
-		logger.info('[Test]  loss: %.4f, metric: %.4f, mean: %.3f (%.3f), stdev: %.3f (%.3f)' % (
-			self.test_loss, self.test_metric, self.test_pred.mean(), self.test_mean, self.test_pred.std(), self.test_std))
+		logger.info('[Dev]   mean: %.3f (%.3f), stdev: %.3f (%.3f)' % (
+			self.dev_pred.mean(), self.dev_mean, self.dev_pred.std(), self.dev_std))
+		logger.info('[Test]  mean: %.3f (%.3f), stdev: %.3f (%.3f)' % (
+			self.test_pred.mean(), self.test_mean, self.test_pred.std(), self.test_std))
 		logger.info('[DEV]   QWK:  %.3f, LWK: %.3f, PRS: %.3f, SPR: %.3f, Tau: %.3f (Best @ %i: {{%.3f}}, %.3f, %.3f, %.3f, %.3f)' % (
 			self.dev_qwk, self.dev_lwk, self.dev_prs, self.dev_spr, self.dev_tau, self.best_dev_epoch,
 			self.best_dev[0], self.best_dev[1], self.best_dev[2], self.best_dev[3], self.best_dev[4]))
