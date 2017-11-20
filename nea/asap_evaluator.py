@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 class Evaluator():
 	
-	def __init__(self, dataset, prompt_id, out_dir, dev_x, test_x, dev_y, test_y, dev_y_org, test_y_org):
+	def __init__(self, dataset, prompt_id, out_dir, dev_x, test_x, dev_y, test_y, dev_y_org, test_y_org, args):
 		self.dataset = dataset
 		self.prompt_id = prompt_id
 		self.out_dir = out_dir
@@ -27,6 +27,9 @@ class Evaluator():
 		self.batch_size = 180
 		self.low, self.high = self.dataset.get_score_range(self.prompt_id)
 		self.dump_ref_scores()
+		self.do_train=args.train
+		self.do_val=args.val
+		self.do_pred=args.pred
 	
 	def dump_ref_scores(self):
 		np.savetxt(self.out_dir + '/preds/dev_ref.txt', self.dev_y_org, fmt='%i')
@@ -56,39 +59,49 @@ class Evaluator():
 		return dev_qwk, test_qwk, dev_lwk, test_lwk
 	
 	def evaluate(self, model, epoch, print_info=False):
-		self.dev_loss, self.dev_metric = model.evaluate(self.dev_x, self.dev_y, batch_size=self.batch_size, verbose=0)
-		self.test_loss, self.test_metric = model.evaluate(self.test_x, self.test_y, batch_size=self.batch_size, verbose=0)
 		
-		self.dev_pred = model.predict(self.dev_x, batch_size=self.batch_size).squeeze()
-		self.test_pred = model.predict(self.test_x, batch_size=self.batch_size).squeeze()
+		if self.do_val:
+			self.dev_loss, self.dev_metric = model.evaluate(self.dev_x, self.dev_y, batch_size=self.batch_size, verbose=0)
+			self.test_loss, self.test_metric = model.evaluate(self.test_x, self.test_y, batch_size=self.batch_size, verbose=0)
 		
-		self.dev_pred = self.dataset.convert_to_dataset_friendly_scores(self.dev_pred, self.prompt_id)
-		self.test_pred = self.dataset.convert_to_dataset_friendly_scores(self.test_pred, self.prompt_id)
+		if self.do_pred:
+			self.dev_pred = model.predict(self.dev_x, batch_size=self.batch_size).squeeze()
+			self.test_pred = model.predict(self.test_x, batch_size=self.batch_size).squeeze()
+			
+			self.dev_pred = self.dataset.convert_to_dataset_friendly_scores(self.dev_pred, self.prompt_id)
+			self.test_pred = self.dataset.convert_to_dataset_friendly_scores(self.test_pred, self.prompt_id)
+			
+			self.dump_predictions(self.dev_pred, self.test_pred, epoch)
+			
+			self.dev_prs, self.test_prs, self.dev_spr, self.test_spr, self.dev_tau, self.test_tau = self.calc_correl(self.dev_pred, self.test_pred)
+			
+			self.dev_qwk, self.test_qwk, self.dev_lwk, self.test_lwk = self.calc_qwk(self.dev_pred, self.test_pred)
 		
-		self.dump_predictions(self.dev_pred, self.test_pred, epoch)
+			if self.dev_qwk > self.best_dev[0]:
+				self.best_dev = [self.dev_qwk, self.dev_lwk, self.dev_prs, self.dev_spr, self.dev_tau]
+				self.best_test = [self.test_qwk, self.test_lwk, self.test_prs, self.test_spr, self.test_tau]
+				self.best_dev_epoch = epoch
+				model.save_weights(self.out_dir + '/best_model_weights.h5', overwrite=True)
 		
-		self.dev_prs, self.test_prs, self.dev_spr, self.test_spr, self.dev_tau, self.test_tau = self.calc_correl(self.dev_pred, self.test_pred)
-		
-		self.dev_qwk, self.test_qwk, self.dev_lwk, self.test_lwk = self.calc_qwk(self.dev_pred, self.test_pred)
-	
-		if self.dev_qwk > self.best_dev[0]:
-			self.best_dev = [self.dev_qwk, self.dev_lwk, self.dev_prs, self.dev_spr, self.dev_tau]
-			self.best_test = [self.test_qwk, self.test_lwk, self.test_prs, self.test_spr, self.test_tau]
-			self.best_dev_epoch = epoch
-			model.save_weights(self.out_dir + '/best_model_weights.h5', overwrite=True)
-	
-		if self.test_qwk > self.best_test_missed:
-			self.best_test_missed = self.test_qwk
-			self.best_test_missed_epoch = epoch
+			if self.test_qwk > self.best_test_missed:
+				self.best_test_missed = self.test_qwk
+				self.best_test_missed_epoch = epoch
 		
 		if print_info:
 			self.print_info()
 	
 	def print_info(self):
-		logger.info('[Dev]   loss: %.4f, metric: %.4f, mean: %.3f (%.3f), stdev: %.3f (%.3f)' % (
-			self.dev_loss, self.dev_metric, self.dev_pred.mean(), self.dev_mean, self.dev_pred.std(), self.dev_std))
-		logger.info('[Test]  loss: %.4f, metric: %.4f, mean: %.3f (%.3f), stdev: %.3f (%.3f)' % (
-			self.test_loss, self.test_metric, self.test_pred.mean(), self.test_mean, self.test_pred.std(), self.test_std))
+		if self.do_val:
+			logger.info('[Dev]   loss: %.4f, metric: %.4f, mean: %.3f (%.3f), stdev: %.3f (%.3f)' % (
+				self.dev_loss, self.dev_metric, self.dev_pred.mean(), self.dev_mean, self.dev_pred.std(), self.dev_std))
+			logger.info('[Test]  loss: %.4f, metric: %.4f, mean: %.3f (%.3f), stdev: %.3f (%.3f)' % (
+				self.test_loss, self.test_metric, self.test_pred.mean(), self.test_mean, self.test_pred.std(), self.test_std))
+		else:
+			logger.info('[Dev]   mean: %.3f (%.3f), stdev: %.3f (%.3f)' % (
+				self.dev_pred.mean(), self.dev_mean, self.dev_pred.std(), self.dev_std))
+			logger.info('[Test]  mean: %.3f (%.3f), stdev: %.3f (%.3f)' % (
+				self.test_pred.mean(), self.test_mean, self.test_pred.std(), self.test_std))
+		
 		logger.info('[DEV]   QWK:  %.3f, LWK: %.3f, PRS: %.3f, SPR: %.3f, Tau: %.3f (Best @ %i: {{%.3f}}, %.3f, %.3f, %.3f, %.3f)' % (
 			self.dev_qwk, self.dev_lwk, self.dev_prs, self.dev_spr, self.dev_tau, self.best_dev_epoch,
 			self.best_dev[0], self.best_dev[1], self.best_dev[2], self.best_dev[3], self.best_dev[4]))
