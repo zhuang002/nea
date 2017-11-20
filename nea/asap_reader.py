@@ -142,7 +142,10 @@ def read_essays(file_path, prompt_id):
 				essays_ids.append(int(tokens[0]))
 	return essays_list, essays_ids
 
-def read_dataset(file_path, prompt_id, maxlen, vocab, tokenize_text, to_lower, score_index=6, char_level=False):
+def read_dataset(file_path, prompt_id, maxlen, vocab, tokenize_text, to_lower, score_index=6, char_level=False, mode=True):
+	logger.info("mode:%s" % mode)
+	if not mode:
+		return [],[],[],0
 	logger.info('Reading dataset from: ' + file_path)
 	if maxlen > 0:
 		logger.info('  Removing sequences with more than ' + str(maxlen) + ' words')
@@ -192,24 +195,29 @@ def read_dataset(file_path, prompt_id, maxlen, vocab, tokenize_text, to_lower, s
 	logger.info('  <num> hit rate: %.2f%%, <unk> hit rate: %.2f%%' % (100*num_hit/total, 100*unk_hit/total))
 	return data_x, data_y, prompt_ids, maxlen_x
 
-def get_data(paths, prompt_id, vocab_size, maxlen, tokenize_text=True, to_lower=True, sort_by_len=False, vocab_path=None, score_index=6):
+def get_data(paths, prompt_id, vocab_size, maxlen, tokenize_text=True, to_lower=True, sort_by_len=False, vocab_path=None, score_index=6,
+	 do_train=True,do_val=True,do_pred=True):
 	train_path, dev_path, test_path = paths[0], paths[1], paths[2]
 	
+	logger.info("do_train:%s,do_val:%s,do_pred:%s" % (do_train,do_val,do_pred))
 	if not vocab_path:
-		vocab = create_vocab(train_path, prompt_id, maxlen, vocab_size, tokenize_text, to_lower)
-		if len(vocab) < vocab_size:
-			logger.warning('The vocabualry includes only %i words (less than %i)' % (len(vocab), vocab_size))
+		if do_train:
+			vocab = create_vocab(train_path, prompt_id, maxlen, vocab_size, tokenize_text, to_lower)
+			if len(vocab) < vocab_size:
+				logger.warning('The vocabualry includes only %i words (less than %i)' % (len(vocab), vocab_size))
+			else:
+				assert vocab_size == 0 or len(vocab) == vocab_size
 		else:
-			assert vocab_size == 0 or len(vocab) == vocab_size
+			vocab = load_vocab(train_path+"/vocab.pkl")
 	else:
 		vocab = load_vocab(vocab_path)
 		if len(vocab) != vocab_size:
 			logger.warning('The vocabualry includes %i words which is different from given: %i' % (len(vocab), vocab_size))
 	logger.info('  Vocab size: %i' % (len(vocab)))
 	
-	train_x, train_y, train_prompts, train_maxlen = read_dataset(train_path, prompt_id, maxlen, vocab, tokenize_text, to_lower)
-	dev_x, dev_y, dev_prompts, dev_maxlen = read_dataset(dev_path, prompt_id, 0, vocab, tokenize_text, to_lower)
-	test_x, test_y, test_prompts, test_maxlen = read_dataset(test_path, prompt_id, 0, vocab, tokenize_text, to_lower)
+	train_x, train_y, train_prompts, train_maxlen = read_dataset(train_path, prompt_id, maxlen, vocab, tokenize_text, to_lower, mode=do_train)
+	dev_x, dev_y, dev_prompts, dev_maxlen = read_dataset(dev_path, prompt_id, 0, vocab, tokenize_text, to_lower, mode=do_val or do_pred)
+	test_x, test_y, test_prompts, test_maxlen = read_dataset(test_path, prompt_id, 0, vocab, tokenize_text, to_lower, mode=do_val or do_pred)
 	
 	overal_maxlen = max(train_maxlen, dev_maxlen, test_maxlen)
 	

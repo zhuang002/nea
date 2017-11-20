@@ -41,6 +41,10 @@ parser.add_argument("--emb", dest="emb_path", type=str, metavar='<str>', help="T
 parser.add_argument("--epochs", dest="epochs", type=int, metavar='<int>', default=50, help="Number of epochs (default=50)")
 parser.add_argument("--maxlen", dest="maxlen", type=int, metavar='<int>', default=0, help="Maximum allowed number of words during training. '0' means no limit (default=0)")
 parser.add_argument("--seed", dest="seed", type=int, metavar='<int>', default=1234, help="Random seed (default=1234)")
+parser.add_argument("--no_train", dest="train",action='store_false', default=True, help="Indicate if we need to do the train")
+parser.add_argument("--no_val", dest="val", action='store_false', default=True, help="Indicate if we want to do the validation")
+parser.add_argument("--no_pred", dest="pred", action='store_false', default=True, help="Indicate if we want to do the prediction")
+
 args = parser.parse_args()
 
 out_dir = args.out_dir_path
@@ -75,23 +79,33 @@ from keras.preprocessing import sequence
 
 # data_x is a list of lists
 (train_x, train_y, train_pmt), (dev_x, dev_y, dev_pmt), (test_x, test_y, test_pmt), vocab, vocab_size, overal_maxlen, num_outputs = dataset.get_data(
-	(args.train_path, args.dev_path, args.test_path), args.prompt_id, args.vocab_size, args.maxlen, tokenize_text=True, to_lower=True, sort_by_len=False, vocab_path=args.vocab_path)
+	(args.train_path, args.dev_path, args.test_path), args.prompt_id, args.vocab_size, args.maxlen, tokenize_text=True, to_lower=True, sort_by_len=False, vocab_path=args.vocab_path,do_train=args.train,do_val=args.val,do_pred=args.pred)
 
-# Dump vocab
-with open(out_dir + '/vocab.pkl', 'wb') as vocab_file:
-	pk.dump(vocab, vocab_file)
+if args.train:
+	# Dump vocab
+	with open(out_dir + '/vocab.pkl', 'wb') as vocab_file:
+		pk.dump(vocab, vocab_file)
 
 # Pad sequences for mini-batch processing
 if args.model_type in {'breg', 'bregp'}:
 	assert args.rnn_dim > 0
 	assert args.recurrent_unit == 'lstm'
-	train_x = sequence.pad_sequences(train_x, maxlen=overal_maxlen)
-	dev_x = sequence.pad_sequences(dev_x, maxlen=overal_maxlen)
-	test_x = sequence.pad_sequences(test_x, maxlen=overal_maxlen)
+	if args.train:
+		train_x = sequence.pad_sequences(train_x, maxlen=overal_maxlen)
+	else:
+		train_x=None
+	if args.val or args.pred:
+		dev_x = sequence.pad_sequences(dev_x, maxlen=overal_maxlen)
+		test_x = sequence.pad_sequences(test_x, maxlen=overal_maxlen)
+	else:
+		dev_x=None
+		test_x=None
 else:
-	train_x = sequence.pad_sequences(train_x)
-	dev_x = sequence.pad_sequences(dev_x)
-	test_x = sequence.pad_sequences(test_x)
+	if args.train:
+		train_x = sequence.pad_sequences(train_x)
+	if args.val or args.pred:
+		dev_x = sequence.pad_sequences(dev_x)
+		test_x = sequence.pad_sequences(test_x)
 
 ###############################################################################################################################
 ## Some statistics
@@ -99,49 +113,70 @@ else:
 
 import keras.backend as K
 
-train_y = np.array(train_y, dtype=K.floatx())
-dev_y = np.array(dev_y, dtype=K.floatx())
-test_y = np.array(test_y, dtype=K.floatx())
+if args.train:
+	train_y = np.array(train_y, dtype=K.floatx())
+if args.val or args.pred:
+	dev_y = np.array(dev_y, dtype=K.floatx())
+	test_y = np.array(test_y, dtype=K.floatx())
 
 #if args.prompt_id:
 ## we should support args.prompt_id == 0
-train_pmt = np.array(train_pmt, dtype='int32')
-dev_pmt = np.array(dev_pmt, dtype='int32')
-test_pmt = np.array(test_pmt, dtype='int32')
+if args.train:
+	train_pmt = np.array(train_pmt, dtype='int32')
+if args.val or args.pred:
+	dev_pmt = np.array(dev_pmt, dtype='int32')
+	test_pmt = np.array(test_pmt, dtype='int32')
 #endif originally
 
-bincounts, mfs_list = U.bincounts(train_y)
-with open('%s/bincounts.txt' % out_dir, 'w') as output_file:
-	for bincount in bincounts:
-		output_file.write(str(bincount) + '\n')
+if args.train:
+	bincounts, mfs_list = U.bincounts(train_y)
+	with open('%s/bincounts.txt' % out_dir, 'w') as output_file:
+		for bincount in bincounts:
+			output_file.write(str(bincount) + '\n')
 
-train_mean = train_y.mean(axis=0)
-train_std = train_y.std(axis=0)
-dev_mean = dev_y.mean(axis=0)
-dev_std = dev_y.std(axis=0)
-test_mean = test_y.mean(axis=0)
-test_std = test_y.std(axis=0)
+train_mean = 0
+train_std = 0
+test_mean = 0
+test_std = 0
+dev_mean = 0
+dev_std = 0
+if args.train:
+	train_mean = train_y.mean(axis=0)
+	train_std = train_y.std(axis=0)
+if args.val or args.pred:
+	dev_mean = dev_y.mean(axis=0)
+	dev_std = dev_y.std(axis=0)
+	test_mean = test_y.mean(axis=0)
+	test_std = test_y.std(axis=0)
+
 
 logger.info('Statistics:')
+if args.train:
+	logger.info('  train_x shape: ' + str(np.array(train_x).shape))
+if args.val or args.pred:
+	logger.info('  dev_x shape:   ' + str(np.array(dev_x).shape))
+	logger.info('  test_x shape:  ' + str(np.array(test_x).shape))
 
-logger.info('  train_x shape: ' + str(np.array(train_x).shape))
-logger.info('  dev_x shape:   ' + str(np.array(dev_x).shape))
-logger.info('  test_x shape:  ' + str(np.array(test_x).shape))
+if args.train:
+	logger.info('  train_y shape: ' + str(train_y.shape))
+if args.val or args.pred:
+	logger.info('  dev_y shape:   ' + str(dev_y.shape))
+	logger.info('  test_y shape:  ' + str(test_y.shape))
 
-logger.info('  train_y shape: ' + str(train_y.shape))
-logger.info('  dev_y shape:   ' + str(dev_y.shape))
-logger.info('  test_y shape:  ' + str(test_y.shape))
-
-logger.info('  train_y mean: %s, stdev: %s, MFC: %s' % (str(train_mean), str(train_std), str(mfs_list)))
+if args.train:
+	logger.info('  train_y mean: %s, stdev: %s, MFC: %s' % (str(train_mean), str(train_std), str(mfs_list)))
 
 # We need the dev and test sets in the original scale for evaluation
-dev_y_org = dev_y.astype(dataset.get_ref_dtype())
-test_y_org = test_y.astype(dataset.get_ref_dtype())
+if args.val or args.pred:
+	dev_y_org = dev_y.astype(dataset.get_ref_dtype())
+	test_y_org = test_y.astype(dataset.get_ref_dtype())
 
 # Convert scores to boundary of [0 1] for training and evaluation (loss calculation)
-train_y = dataset.get_model_friendly_scores(train_y, train_pmt)
-dev_y = dataset.get_model_friendly_scores(dev_y, dev_pmt)
-test_y = dataset.get_model_friendly_scores(test_y, test_pmt)
+if args.train:
+	train_y = dataset.get_model_friendly_scores(train_y, train_pmt)
+if args.val or args.pred:
+	dev_y = dataset.get_model_friendly_scores(dev_y, dev_pmt)
+	test_y = dataset.get_model_friendly_scores(test_y, test_pmt)
 
 ###############################################################################################################################
 ## Optimizaer algorithm
@@ -164,7 +199,19 @@ else:
 	loss = 'mean_absolute_error'
 	metric = 'mean_squared_error'
 
-model = create_model(args, train_y.mean(axis=0), overal_maxlen, vocab)
+if args.train:
+	model = create_model(args, train_y.mean(axis=0), overal_maxlen, vocab)
+else:
+	# load json and create model
+	from keras.models import model_from_json
+	from nea.my_layers import MeanOverTime
+	json_file = open('%s/model_arch.json' % args.train_path, 'r')
+	loaded_model_json = json_file.read()
+	json_file.close()
+	model = model_from_json(loaded_model_json,{'MeanOverTime':MeanOverTime})
+	# load weights into new model
+	model.load_weights("%s/best_model_weights.h5" % args.train_path)
+	logger.info("Loaded model from disk")
 model.compile(loss=loss, optimizer=optimizer, metrics=[metric])
 
 ###############################################################################################################################
@@ -180,7 +227,6 @@ plot_model(model, to_file = out_dir + '/model.png')
 ###############################################################################################################################
 ## Save model architecture
 #
-
 logger.info('Saving model architecture')
 with open(out_dir + '/model_arch.json', 'w') as arch:
 	arch.write(model.to_json(indent=2))
@@ -190,38 +236,48 @@ logger.info('  Done')
 ## Evaluator
 #
 
-evl = Evaluator(dataset, args.prompt_id, out_dir, dev_x, test_x, dev_y, test_y, dev_y_org, test_y_org)
+evl = Evaluator(dataset, args.prompt_id, out_dir, dev_x, test_x, dev_y, test_y, dev_y_org, test_y_org, args)
 
 ###############################################################################################################################
 ## Training
 #
-
-logger.info('--------------------------------------------------------------------------------------------------------------------------')
-logger.info('Initial Evaluation:')
-evl.evaluate(model, -1, print_info=True)
+if args.val or arg.pred:
+	logger.info('--------------------------------------------------------------------------------------------------------------------------')
+	logger.info('Initial Evaluation:')
+	evl.evaluate(model, -1, print_info=True)
 
 total_train_time = 0
 total_eval_time = 0
 
-for ii in range(args.epochs):
+loops=1
+if args.train:
+	loops=args.epochs
+
+for ii in range(loops):
 	# Training
-	t0 = time()
-	train_history = model.fit(train_x, train_y, batch_size=args.batch_size, nb_epoch=1, verbose=0)
-	tr_time = time() - t0
-	total_train_time += tr_time
+	total_train_time = 0
+	if args.train:
+		t0 = time()
+		train_history = model.fit(train_x, train_y, batch_size=args.batch_size, epochs=1, verbose=0)
+		tr_time = time() - t0
+		total_train_time += tr_time
 	
 	# Evaluate
-	t0 = time()
-	evl.evaluate(model, ii)
-	evl_time = time() - t0
-	total_eval_time += evl_time
+	total_eval_time = 0
+	if args.val or args.pred:
+		t0 = time()
+		evl.evaluate(model, ii)
+		evl_time = time() - t0
+		total_eval_time += evl_time
 	
 	# Print information
-	train_loss = train_history.history['loss'][0]
-	train_metric = train_history.history[metric][0]
-	logger.info('Epoch %d, train: %is, evaluation: %is' % (ii, tr_time, evl_time))
-	logger.info('[Train] loss: %.4f, metric: %.4f' % (train_loss, train_metric))
-	evl.print_info()
+	if args.train:
+		train_loss = train_history.history['loss'][0]
+		train_metric = train_history.history[metric][0]
+		logger.info('Epoch %d, train: %is, evaluation: %is' % (ii, tr_time, evl_time))
+		logger.info('[Train] loss: %.4f, metric: %.4f' % (train_loss, train_metric))
+	if args.val or args.pred:
+		evl.print_info()
 
 ###############################################################################################################################
 ## Summary of the results
